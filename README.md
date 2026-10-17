@@ -1,23 +1,57 @@
-# Element Blast — Mini Oyun Motoru
+# Element Blast
 
-**Konu Seçimi: C — Mini Oyun Motoru**
+> A 3v3 turn-based elemental battle engine in Python, structured around six GoF design patterns (seven applications).
 
-3v3 sıra tabanlı elemental dövüş. Dört element arası reaksiyon kuralları, karakter yetenekleri ve düşman AI'sı — hepsi tasarım örüntüleriyle genişletilebilir şekilde yapılandırıldı. Bu proje Yazılım Tasarım Örüntüleri ödevinin 3 faz boyunca evrilmiş halidir.
+> 🇹🇷 **Türkçe özet:** Element Blast, dört element arası reaksiyonların, yeteneklerin ve düşman AI'sının tasarım örüntüleriyle genişletilebilir biçimde kurulduğu 3v3 sıra tabanlı bir dövüş motorudur. Her örüntünün nerede ve hangi sorunu çözmek için kullanıldığı [PATTERNS.md](PATTERNS.md) dosyasında (Türkçe) belgelenmiştir.
 
-[![CI](https://github.com/atlamayanat/ELEMENT-BLAST/actions/workflows/ci.yml/badge.svg)](https://github.com/atlamayanat/ELEMENT-BLAST/actions/workflows/ci.yml)
+[![CI](https://github.com/eemresari/ELEMENT-BLAST/actions/workflows/ci.yml/badge.svg)](https://github.com/eemresari/ELEMENT-BLAST/actions/workflows/ci.yml)
 
----
+## Overview
 
-## Ne Yapıyor
+Element Blast is a console-based, turn-based battle game with a deliberately small domain (four elements, four abilities, a handful of reactions) so that the **architecture** is the interesting part. It started as a single `GameEngine` god class full of `if-elif` chains and was refactored over three phases into a set of small, replaceable pieces. Built for a Software Design Patterns course (3 phases).
 
-- **4 element:** Fire, Cryo, Electro, Hydro
-- **7 reaksiyon:** Fire→Cryo 2x, Fire↔Hydro 1.5x + yanma, Cryo→Hydro dondurma, Hydro→Electro AoE, Electro→Fire sıçrama + şok, default
-- **4 yetenek:** Fire Blast (1.5x tek hedef), Freeze Ray (dondurma), Thunder Chain (AoE), Tidal Wave (AoE)
-- **3 status efekti (yığılabilir):** Burning (3 tur DoT), Frozen (1 tur sıra atlatma), Shocked (sonraki hasar +%50)
-- **2 oyun modu:** Quick start (varsayılan 3v3) ve Custom draft (havuzdan seç)
-- **Defensive AI:** Düşmanlar HP düşükken yetenek bias'lı kararlar veriyor
+Runs on plain Python 3.11+ with no runtime dependencies.
 
-## Mimari
+## Design patterns at a glance
+
+Each pattern was introduced to remove a concrete problem found in the Phase 0 code ([PROBLEMS.md](PROBLEMS.md)). Full write-ups with before/after code are in [PATTERNS.md](PATTERNS.md).
+
+| # | Pattern | Category | Phase | Where | Problem it removed |
+|---|---------|----------|-------|-------|--------------------|
+| 1 | **Factory Method** | Creational | 1 | [characters/factory.py](src/game/characters/factory.py) | Element type-check chains in the engine |
+| 2 | **Builder** | Creational | 1 | [characters/builder.py](src/game/characters/builder.py) | Inflexible character setup |
+| 3 | **Composite** | Structural | 2 | [team.py](src/game/team.py) | Duplicated AoE code and an HP-cap hack |
+| 4 | **Decorator** | Structural | 2 | [effects/status.py](src/game/effects/status.py) | Status effects leaking into `Character` |
+| 5 | **Strategy** (abilities) | Behavioral | 3 | [abilities/](src/game/abilities/) | Ability `if-elif` chain |
+| 6 | **Strategy** (enemy AI) | Behavioral | 3 | [ai/](src/game/ai/) | One-size-fits-all enemy behavior |
+| 7 | **Chain of Responsibility** | Behavioral | 3 | [reactions/](src/game/reactions/) | Reaction `if-elif` chain |
+
+### Open/Closed in practice
+
+Thanks to the reaction chain, a new elemental reaction can be added **without touching `engine.py`**:
+
+```python
+class CryoElectroHandler(ReactionHandler):
+    def can_handle(self, ctx):
+        return ctx.attacker.element == "cryo" and ctx.target.element == "electro"
+    def apply(self, ctx):
+        ...
+
+engine.reaction_chain.append(CryoElectroHandler())
+```
+
+This is verified by [`test_ocp_new_reaction_handler_appended_without_engine_change`](tests/test_smoke.py).
+
+## Features
+
+- **4 elements:** Fire, Cryo, Electro, Hydro
+- **6 reaction handlers plus a default fallback:** Fire to Cryo (2x), Fire to Hydro (1.5x plus burning), Hydro to Fire (1.5x), Cryo to Hydro (freeze), Hydro to Electro (1.5x split across the enemy team), Electro to Fire (splash damage plus shock)
+- **4 abilities:** Fire Blast (single target, 1.5x), Freeze Ray, Thunder Chain (AoE), Tidal Wave (AoE)
+- **3 stackable status effects:** Burning (damage over time), Frozen (skips a turn), Shocked (next hit deals 1.5x)
+- **2 game modes:** Quick start (default 3v3) and Custom draft (pick from a pool)
+- **Defensive enemy AI** that changes its choices when HP is low
+
+## Architecture
 
 ```mermaid
 classDiagram
@@ -112,104 +146,62 @@ classDiagram
     GameEngine o-- ReactionChain
 ```
 
----
+## Tech stack
 
-## Kullanılan Tasarım Örüntüleri
+Python 3.11+ (standard library only), pytest for tests, GitHub Actions for CI, PlantUML diagrams under `docs/diagrams/`. An optional `pygame` extra is declared in `pyproject.toml`.
 
-| # | Pattern | Kategori | Faz | Konum | Çözdüğü Sorun |
-|---|---------|----------|-----|-------|----------------|
-| 1 | **Factory Method** | Creational | 1 | [characters/factory.py](src/game/characters/factory.py) | Element type-check zincirleri (engine'de if-elif) |
-| 2 | **Builder** | Creational | 1 | [characters/builder.py](src/game/characters/builder.py) | Karakter kurulumunda esneklik |
-| 3 | **Composite** | Structural | 2 | [team.py](src/game/team.py) | AoE kod tekrarı, HP-cap hack |
-| 4 | **Decorator** | Structural | 2 | [effects/status.py](src/game/effects/status.py) | Status efektleri Character'a sızıyordu |
-| 5 | **Strategy** (Ability) | Behavioral | 3 | [abilities/](src/game/abilities/) | Yetenek if-elif zinciri |
-| 6 | **Strategy** (AI) | Behavioral | 3 | [ai/](src/game/ai/) | Tek tip düşman davranışı |
-| 7 | **Chain of Responsibility** | Behavioral | 3 | [reactions/](src/game/reactions/) | Reaksiyon if-elif zinciri |
-
-Detaylı belgeleme: [PATTERNS.md](PATTERNS.md).
-
-### OCP Demonstrasyonu (Faz 3)
-
-Chain of Responsibility sayesinde yeni bir elemental reaksiyon eklemek **engine.py'ye dokunmadan** mümkün:
-
-```python
-class CryoElectroHandler(ReactionHandler):
-    def can_handle(self, ctx):
-        return ctx.attacker.element == "cryo" and ctx.target.element == "electro"
-    def apply(self, ctx):
-        ...
-
-engine.reaction_chain.append(CryoElectroHandler())
-```
-
-Bu OCP uyumunu kanıtlayan test: [tests/test_smoke.py::test_ocp_new_reaction_handler_appended_without_engine_change](tests/test_smoke.py).
-
----
-
-## Nasıl Çalıştırılır
-
-Python 3.11+ gerekli. Proje kökünden:
-
-```bash
-python run.py
-```
-
-veya:
-
-```bash
-python -m src.game.main
-```
-
-> IDE'den çalıştırırken `run.py`'yi açıp çalıştırın, `main.py`'yi değil — `main.py` paket içinden çağrıldığı varsayımıyla import yapıyor.
-
-### Kontroller
-
-Her tur:
-1. Mod seç: `q` (quick start) veya `c` (custom draft — havuzdan 3 karakter)
-2. Karakter sırası gelince aksiyon: `a` (saldırı) veya `s` (özel yetenek)
-3. Tek hedefli aksiyonlarda rakip numarası gir
-
-## Testler
+## Testing and CI
 
 ```bash
 pip install pytest
 pytest tests/ -v
 ```
 
-12 smoke test: Composite, Decorator, Strategy, CoR ve OCP demosu dahil. CI her push'ta otomatik çalıştırır.
+12 smoke tests cover Composite, Decorator, Strategy, Chain of Responsibility and the open/closed demo. GitHub Actions runs them on every push (Python 3.11, see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
----
+## Project status
 
-## Repo Yapısı
+Completed as a three-phase course project. Each phase has its own branch on the remote (`phase-1`, `phase-2`, `phase-3`) and `main` holds the final state.
 
-```
+| Phase | Branch | Focus |
+|-------|--------|-------|
+| 0 | `main` (initial) | Baseline: god class, `if-elif` chains (analysis in [PROBLEMS.md](PROBLEMS.md)) |
+| 1 | `phase-1` | Creational: Factory Method, Builder |
+| 2 | `phase-2` | Structural: Composite, Decorator |
+| 3 | `phase-3` | Behavioral: Strategy, Chain of Responsibility, CI |
+
+## Repository layout
+
+```text
 .
-├── README.md              ← bu dosya
-├── PATTERNS.md            ← tüm örüntülerin detayı
-├── PROBLEMS.md            ← Faz 0 analizi + AI karşılaştırması
-├── pyproject.toml
-├── run.py                 ← giriş noktası
+├── README.md
+├── PATTERNS.md            # Every pattern: motivation, before/after, location (Turkish)
+├── PROBLEMS.md            # Phase 0 design analysis (Turkish)
+├── run.py                 # Entry point
 ├── src/game/
-│   ├── characters/        ← Factory Method, Builder, Character hiyerarşisi
-│   ├── effects/           ← Decorator (StatusEffect)
-│   ├── team.py            ← Composite
-│   ├── abilities/         ← Strategy (yetenekler)
-│   ├── ai/                ← Strategy (enemy AI)
-│   ├── reactions/         ← Chain of Responsibility
+│   ├── characters/        # Factory Method, Builder, Character hierarchy
+│   ├── effects/           # Decorator (StatusEffect)
+│   ├── team.py            # Composite
+│   ├── abilities/         # Strategy (abilities)
+│   ├── ai/                # Strategy (enemy AI)
+│   ├── reactions/         # Chain of Responsibility
 │   ├── engine.py
 │   └── main.py
-├── tests/                 ← pytest smoke + OCP demo
+├── tests/                 # pytest smoke tests + open/closed demo
 ├── docs/
-│   ├── diagrams/          ← UML (.puml) faz-faz
-│   └── ai-log/            ← AI etkileşim kayıtları
+│   ├── diagrams/          # PlantUML, phase by phase (before/after)
+│   └── ai-log/            # Notes on AI assistance per phase
 └── .github/workflows/ci.yml
 ```
 
-## Faz Geçmişi
+## Running locally
 
-| Faz | Branch | Konu | Puan |
-|-----|--------|------|------|
-| 0 | `main` | Bilinçsiz başlangıç — God Class, if-elif zincirleri | — |
-| 1 | `phase-1` | Creational: Factory Method + Builder | 25 |
-| 2 | `phase-2` | Structural: Composite + Decorator | 30 |
-| 3 | `phase-3` | Behavioral: Strategy + Chain of Responsibility + CI | 35 |
+Requires Python 3.11+. From the repository root:
+
+```bash
+python run.py
+```
+
+Controls: pick a mode with `q` (quick start) or `c` (custom draft), then on each turn press `a` (attack) or `s` (special ability) and enter the enemy number for single-target actions.
+
+If you launch from an IDE, run `run.py` rather than `main.py`; `main.py` uses package-relative imports.
